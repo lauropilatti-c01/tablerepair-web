@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # Redis para BullMQ (filas de jobs)
+  redis:
+    image: redis:7-alpine
+    container_name: tablerepair-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # API REST (Fastify)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tablerepair-api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      - REDIS_URL=redis://redis:6379
+    env_file:
+      - .env
+    volumes:
+      - uploads_data:/app/uploads
+      - outputs_data:/app/outputs
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    command: ["node", "dist/app.js"]
+
+  # Worker para processamento em background
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tablerepair-worker
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+    env_file:
+      - .env
+    volumes:
+      - uploads_data:/app/uploads
+      - outputs_data:/app/outputs
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    command: ["node", "dist/worker.js"]
+
+volumes:
+  redis_data:
+  uploads_data:
+  outputs_data:

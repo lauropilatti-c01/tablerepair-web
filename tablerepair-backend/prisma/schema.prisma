@@ -1,0 +1,148 @@
+// Prisma Schema para TableRepair Backend
+// Conecta ao Supabase PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// BATCH: Um upload = um batch de processamento
+// ==========================================
+model Batch {
+  id              String      @id @default(cuid())
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @default(now()) @map("updated_at")
+
+  // Metadata do arquivo
+  fileName        String      @map("file_name")
+  fileSize        Int         @default(0) @map("file_size")
+
+  // Contadores
+  totalQuestions  Int         @default(0) @map("total_questions")
+  totalTables     Int         @default(0) @map("total_tables")
+  totalIssues     Int         @default(0) @map("total_issues")
+
+  // Status do processamento (TEXT no banco)
+  status          String      @default("PENDING")
+  currentPhase    String      @default("UPLOAD") @map("current_phase")
+
+  // Timestamps de progresso
+  startedAt       DateTime?   @map("started_at")
+  completedAt     DateTime?   @map("completed_at")
+  cancelledAt     DateTime?   @map("cancelled_at")
+
+  // Resultados
+  successCount    Int         @default(0) @map("success_count")
+  failedCount     Int         @default(0) @map("failed_count")
+  skippedCount    Int         @default(0) @map("skipped_count")
+
+  // Custos (tracking)
+  totalTokensUsed Int         @default(0) @map("total_tokens_used")
+  totalCostBRL    Float       @default(0) @map("total_cost_brl")
+
+  // Armazenamento de arquivos
+  inputFilePath   String      @map("input_file_path")
+  outputFilePath  String?     @map("output_file_path")
+
+  // Configuracoes do batch
+  strategy        String      @default("hybrid")
+  dryRun          Boolean     @default(false) @map("dry_run")
+
+  // Relacionamentos
+  tasks           Task[]
+  logs            ProcessLog[]
+
+  @@map("batch")
+  @@index([status, createdAt])
+}
+
+// ==========================================
+// TASK: Unidade de trabalho na fila
+// ==========================================
+model Task {
+  id              String      @id @default(cuid())
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @default(now()) @map("updated_at")
+
+  // Vinculo com batch
+  batchId         String      @map("batch_id")
+  batch           Batch       @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  // Identificacao da questao
+  questionIndex   Int         @map("question_index")
+  qid             String?
+  field           String
+
+  // Localizacao do problema
+  tableIndex      Int         @default(0) @map("table_index")
+
+  // Tipo de tarefa (TEXT no banco)
+  taskType        String      @default("REPAIR") @map("task_type")
+  issueType       String?     @map("issue_type")
+  severity        String      @default("MEDIUM")
+
+  // Conteudo
+  rawHtml         String      @map("raw_html")
+  repairedHtml    String?     @map("repaired_html")
+  context         Json?
+
+  // Status de execucao (TEXT no banco)
+  status          String      @default("PENDING")
+  attempts        Int         @default(0)
+  maxAttempts     Int         @default(3) @map("max_attempts")
+
+  // Resultado
+  provider        String?
+  tokensUsed      Int         @default(0) @map("tokens_used")
+  costBRL         Float       @default(0) @map("cost_brl")
+
+  // Erros
+  lastError       String?     @map("last_error")
+
+  // BullMQ job tracking
+  bullJobId       String?     @map("bull_job_id")
+
+  // Timing
+  startedAt       DateTime?   @map("started_at")
+  completedAt     DateTime?   @map("completed_at")
+  nextRetryAt     DateTime?   @map("next_retry_at")
+
+  @@map("task")
+  @@index([batchId])
+  @@index([status])
+}
+
+// ==========================================
+// PROCESS_LOG: Eventos para debugging
+// ==========================================
+model ProcessLog {
+  id              String      @id @default(cuid())
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  // Vinculo
+  batchId         String      @map("batch_id")
+  batch           Batch       @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  // Task opcional
+  taskId          String?     @map("task_id")
+
+  // Nivel e mensagem (TEXT no banco)
+  level           String      @default("INFO")
+  message         String
+
+  // Contexto (opcional)
+  questionIndex   Int?        @map("question_index")
+  field           String?
+
+  // Dados estruturados
+  metadata        Json?
+  stackTrace      String?     @map("stack_trace")
+
+  @@map("process_log")
+  @@index([batchId])
+}
